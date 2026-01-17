@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Ailonka{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-lg border-0">
+            <div class="card-body p-5">
+                <div class="text-center mb-4">
+                    <i class="bi bi-gear-fill text-primary" style="font-size: 3rem;"></i>
+                    <h2 class="mt-3">AI Settings</h2>
+                    <p class="text-muted">Configure your Anthropic API connection</p>
+                </div>
+
+                <form id="settings-form" method="POST">
+                    <div class="mb-4">
+                        <label for="api_key" class="form-label">API Key</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-key"></i></span>
+                            <input type="password" class="form-control" id="api_key" name="api_key"
+                                   value="{{ masked_key }}" placeholder="sk-ant-api03-...">
+                            <button class="btn btn-outline-secondary" type="button" id="toggle-key">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                        </div>
+                        <div class="form-text">Your Anthropic API key from <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a></div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label for="model" class="form-label">Default Model</label>
+                        <select class="form-select" id="model" name="model">
+                            {% for value, label in models %}
+                            <option value="{{ value }}" {% if value == current_model %}selected{% endif %}>
+                                {{ label }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            <strong>Haiku</strong> - Fastest, most cost-effective |
+                            <strong>Sonnet</strong> - Balanced performance |
+                            <strong>Opus</strong> - Most capable
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-primary" id="test-btn">
+                            <i class="bi bi-lightning"></i> Test Connection
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Save Settings
+                        </button>
+                    </div>
+                </form>
+
+                <div id="test-result" class="mt-3" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Toggle API key visibility
+document.getElementById('toggle-key').addEventListener('click', function() {
+    const input = document.getElementById('api_key');
+    const icon = this.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.replace('bi-eye', 'bi-eye-slash');
+    } else {
+        input.type = 'password';
+        icon.classList.replace('bi-eye-slash', 'bi-eye');
+    }
+});
+
+// Test connection
+document.getElementById('test-btn').addEventListener('click', async function() {
+    const apiKey = document.getElementById('api_key').value;
+    const resultDiv = document.getElementById('test-result');
+
+    this.disabled = true;
+    this.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Testing...';
+
+    try {
+        const response = await fetch('/api/test-connection', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({api_key: apiKey})
+        });
+        const data = await response.json();
+
+        resultDiv.style.display = 'block';
+        if (data.success) {
+            resultDiv.className = 'mt-3 alert alert-success';
+            resultDiv.innerHTML = '<i class="bi bi-check-circle"></i> ' + data.message;
+        } else {
+            resultDiv.className = 'mt-3 alert alert-danger';
+            resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> ' + data.message;
+        }
+    } catch (e) {
+        resultDiv.style.display = 'block';
+        resultDiv.className = 'mt-3 alert alert-danger';
+        resultDiv.innerHTML = '<i class="bi bi-x-circle"></i> Connection failed';
+    }
+
+    this.disabled = false;
+    this.innerHTML = '<i class="bi bi-lightning"></i> Test Connection';
+});
+</script>
+{% endblock %}

@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}AI Chat - Ailonka{% endblock %}
+
+{% block content %}
+<style>
+    .chat-container {
+        height: calc(100vh - 280px);
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+    }
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 0.5rem;
+    }
+    .message {
+        margin-bottom: 1rem;
+        max-width: 80%;
+    }
+    .message.user {
+        margin-left: auto;
+        text-align: right;
+    }
+    .message-content {
+        display: inline-block;
+        padding: 0.75rem 1rem;
+        border-radius: 1rem;
+        text-align: left;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    .message.user .message-content {
+        background: var(--primary-orange);
+        color: white;
+        border-bottom-right-radius: 0.25rem;
+    }
+    .message.assistant .message-content {
+        background: white;
+        border: 1px solid #dee2e6;
+        border-bottom-left-radius: 0.25rem;
+    }
+    .message-label {
+        font-size: 0.75rem;
+        color: #6c757d;
+        margin-bottom: 0.25rem;
+    }
+    .thinking {
+        color: #6c757d;
+        font-style: italic;
+    }
+</style>
+
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="card shadow-lg border-0">
+            <div class="card-header d-flex justify-content-between align-items-center"
+                 style="background: linear-gradient(90deg, var(--primary-orange), var(--primary-dark)); color: white;">
+                <span><i class="bi bi-chat-dots"></i> AI Assistant</span>
+                <div>
+                    <span class="badge bg-light text-dark me-2">{{ current_model_label }}</span>
+                    <button class="btn btn-sm btn-outline-light" id="clear-btn" title="Clear chat">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="chat-container">
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="text-center text-muted py-5" id="empty-state">
+                            <i class="bi bi-chat-heart" style="font-size: 3rem;"></i>
+                            <p class="mt-2">Start a conversation with Claude</p>
+                        </div>
+                    </div>
+                    <div class="p-3 border-top">
+                        <form id="chat-form" class="d-flex gap-2">
+                            <input type="text" class="form-control" id="user-input"
+                                   placeholder="Type your message..." autocomplete="off">
+                            <button type="submit" class="btn btn-primary" id="send-btn">
+                                <i class="bi bi-send"></i>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const messagesDiv = document.getElementById('chat-messages');
+const emptyState = document.getElementById('empty-state');
+const chatForm = document.getElementById('chat-form');
+const userInput = document.getElementById('user-input');
+const sendBtn = document.getElementById('send-btn');
+const clearBtn = document.getElementById('clear-btn');
+
+function addMessage(role, content) {
+    if (emptyState) emptyState.remove();
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${role}`;
+
+    const label = role === 'user' ? 'You' : 'Claude';
+    msgDiv.innerHTML = `
+        <div class="message-label">${label}</div>
+        <div class="message-content">${escapeHtml(content)}</div>
+    `;
+
+    messagesDiv.appendChild(msgDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    return msgDiv;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+chatForm.addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const message = userInput.value.trim();
+    if (!message) return;
+
+    userInput.value = '';
+    addMessage('user', message);
+
+    sendBtn.disabled = true;
+    userInput.disabled = true;
+    sendBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+
+    // Add thinking indicator
+    const thinkingDiv = addMessage('assistant', 'Thinking...');
+    thinkingDiv.querySelector('.message-content').classList.add('thinking');
+
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({message: message})
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            thinkingDiv.querySelector('.message-content').classList.remove('thinking');
+            thinkingDiv.querySelector('.message-content').textContent = data.response;
+        } else {
+            thinkingDiv.querySelector('.message-content').innerHTML =
+                '<span class="text-danger"><i class="bi bi-exclamation-triangle"></i> ' +
+                escapeHtml(data.error) + '</span>';
+        }
+    } catch (e) {
+        thinkingDiv.querySelector('.message-content').innerHTML =
+            '<span class="text-danger"><i class="bi bi-exclamation-triangle"></i> Failed to send message</span>';
+    }
+
+    sendBtn.disabled = false;
+    userInput.disabled = false;
+    sendBtn.innerHTML = '<i class="bi bi-send"></i>';
+    userInput.focus();
+});
+
+clearBtn.addEventListener('click', async function() {
+    if (!confirm('Clear chat history?')) return;
+
+    try {
+        await fetch('/api/chat/clear', {method: 'POST'});
+        messagesDiv.innerHTML = `
+            <div class="text-center text-muted py-5" id="empty-state">
+                <i class="bi bi-chat-heart" style="font-size: 3rem;"></i>
+                <p class="mt-2">Start a conversation with Claude</p>
+            </div>
+        `;
+    } catch (e) {
+        alert('Failed to clear chat');
+    }
+});
+
+// Focus input on load
+userInput.focus();
+</script>
+{% endblock %}
