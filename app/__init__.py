@@ -11,7 +11,7 @@ load_dotenv()
 db = SQLAlchemy()
 login_manager = LoginManager()
 
-def create_app():
+def create_app(enable_scheduler: bool = True):
     """Flask application factory"""
     app = Flask(__name__)
 
@@ -32,5 +32,13 @@ def create_app():
     # Import and register routes
     from app import routes
     app.register_blueprint(routes.bp)
+
+    # Initialize scheduler for background sync (only for main process)
+    if enable_scheduler and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        try:
+            from app.services.scheduler_service import init_scheduler
+            init_scheduler(app)
+        except Exception as e:
+            app.logger.warning(f"Failed to initialize scheduler: {e}")
 
     return app

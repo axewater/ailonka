@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} - Ailonka{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('main.products') }}">Products</a></li>
+        <li class="breadcrumb-item active">{{ product.name[:40] }}{% if product.name|length > 40 %}...{% endif %}</li>
+    </ol>
+</nav>
+
+<div class="row">
+    <!-- Product Image and Basic Info -->
+    <div class="col-lg-5 mb-4">
+        <div class="card shadow-sm">
+            {% if product.image_url %}
+            <img src="{{ product.image_url }}" class="card-img-top p-3" style="max-height: 400px; object-fit: contain;"
+                 onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22><rect fill=%22%23f0f0f0%22 width=%22400%22 height=%22300%22/><text fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-size=%2220%22>No Image Available</text></svg>'">
+            {% else %}
+            <div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 300px;">
+                <i class="bi bi-image text-muted" style="font-size: 4rem;"></i>
+            </div>
+            {% endif %}
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <a href="{{ product.product_url }}" target="_blank" class="btn btn-primary">
+                        <i class="bi bi-box-arrow-up-right"></i> View on Site
+                    </a>
+                    <form action="{{ url_for('main.product_toggle_favorite', product_id=product.id) }}" method="POST" class="d-inline">
+                        <button type="submit" class="btn {% if product.is_favorite %}btn-danger{% else %}btn-outline-danger{% endif %}">
+                            <i class="bi bi-heart{% if product.is_favorite %}-fill{% endif %}"></i>
+                            {% if product.is_favorite %}Favorited{% else %}Add to Favorites{% endif %}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Product Details -->
+    <div class="col-lg-7 mb-4">
+        <div class="card shadow-sm h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <h3 class="mb-0">{{ product.name }}</h3>
+                    {% if not product.is_available %}
+                    <span class="badge bg-secondary">Unavailable</span>
+                    {% endif %}
+                </div>
+
+                <div class="mb-4">
+                    {% if product.current_price %}
+                    <span class="display-5 text-success fw-bold">${{ "%.2f"|format(product.current_price) }}</span>
+                    {% if product.original_price and product.original_price > product.current_price %}
+                    <span class="h4 text-muted text-decoration-line-through ms-2">${{ "%.2f"|format(product.original_price) }}</span>
+                    {% set discount = ((product.original_price - product.current_price) / product.original_price * 100)|round|int %}
+                    <span class="badge bg-danger ms-2">{{ discount }}% OFF</span>
+                    {% endif %}
+                    {% else %}
+                    <span class="text-muted">Price not available</span>
+                    {% endif %}
+                </div>
+
+                {% if product.description %}
+                <div class="mb-4">
+                    <h6>Description</h6>
+                    <p class="text-muted">{{ product.description }}</p>
+                </div>
+                {% endif %}
+
+                <hr>
+
+                <div class="row small text-muted">
+                    <div class="col-6 mb-2">
+                        <i class="bi bi-globe"></i> <strong>Source:</strong>
+                        <a href="{{ url_for('main.source_detail', source_id=product.source.id) }}">{{ product.source.name }}</a>
+                    </div>
+                    <div class="col-6 mb-2">
+                        <i class="bi bi-calendar-plus"></i> <strong>First Seen:</strong>
+                        {{ product.first_seen_at.strftime('%Y-%m-%d') }}
+                    </div>
+                    <div class="col-6 mb-2">
+                        <i class="bi bi-clock"></i> <strong>Last Updated:</strong>
+                        {{ product.last_updated_at.strftime('%Y-%m-%d %H:%M') }}
+                    </div>
+                    <div class="col-6 mb-2">
+                        <i class="bi bi-currency-dollar"></i> <strong>Currency:</strong>
+                        {{ product.currency }}
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- Personal Notes -->
+                <div class="mb-3">
+                    <label class="form-label"><i class="bi bi-sticky"></i> Personal Notes</label>
+                    <textarea class="form-control" id="userNotes" rows="3" placeholder="Add your notes about this product...">{{ product.user_notes or '' }}</textarea>
+                    <button class="btn btn-sm btn-outline-primary mt-2" onclick="saveNotes()">
+                        <i class="bi bi-save"></i> Save Notes
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Price History Chart -->
+<div class="card shadow-sm mb-4">
+    <div class="card-header">
+        <h5 class="mb-0"><i class="bi bi-graph-up"></i> Price History</h5>
+    </div>
+    <div class="card-body">
+        {% if price_history|length > 1 %}
+        <canvas id="priceChart" height="100"></canvas>
+        {% elif price_history|length == 1 %}
+        <div class="text-center py-4 text-muted">
+            <i class="bi bi-graph-up" style="font-size: 2rem;"></i>
+            <p class="mt-2 mb-0">Only one price record available. More data will be collected over time.</p>
+        </div>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+            <i class="bi bi-graph-up" style="font-size: 2rem;"></i>
+            <p class="mt-2 mb-0">No price history available yet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Actions -->
+<div class="card shadow-sm">
+    <div class="card-body d-flex justify-content-between">
+        <a href="{{ url_for('main.products') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back to Products
+        </a>
+        <form action="{{ url_for('main.product_delete', product_id=product.id) }}" method="POST"
+              onsubmit="return confirm('Are you sure you want to delete this product? Price history will also be deleted.');">
+            <button type="submit" class="btn btn-outline-danger">
+                <i class="bi bi-trash"></i> Delete Product
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Chart.js for price history -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+{% if price_history|length > 1 %}
+const ctx = document.getElementById('priceChart').getContext('2d');
+const priceData = [
+    {% for h in price_history %}
+    { x: '{{ h.recorded_at.strftime("%Y-%m-%d %H:%M") }}', y: {{ h.price }} },
+    {% endfor %}
+];
+
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: priceData.map(d => d.x),
+        datasets: [{
+            label: 'Price ($)',
+            data: priceData.map(d => d.y),
+            borderColor: '#FF6B35',
+            backgroundColor: 'rgba(255, 107, 53, 0.1)',
+            fill: true,
+            tension: 0.3,
+            pointRadius: 4,
+            pointHoverRadius: 6
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: {
+            legend: {
+                display: false
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return '$' + context.parsed.y.toFixed(2);
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                display: true,
+                title: {
+                    display: true,
+                    text: 'Date'
+                }
+            },
+            y: {
+                display: true,
+                title: {
+                    display: true,
+                    text: 'Price ($)'
+                },
+                ticks: {
+                    callback: function(value) {
+                        return '$' + value.toFixed(2);
+                    }
+                }
+            }
+        }
+    }
+});
+{% endif %}
+
+function saveNotes() {
+    const notes = document.getElementById('userNotes').value;
+    fetch('{{ url_for("main.product_update_notes", product_id=product.id) }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ notes: notes })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('Notes saved successfully!');
+        } else {
+            alert('Failed to save notes');
+        }
+    })
+    .catch(error => {
+        alert('Error saving notes: ' + error.message);
+    });
+}
+</script>
+{% endblock %}

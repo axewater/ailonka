@@ -87,3 +87,91 @@ class UserSettings(db.Model):
 def load_user(user_id):
     """Load user by ID for Flask-Login"""
     return User.query.get(int(user_id))
+
+
+class Source(db.Model):
+    """Shopping website source for scraping"""
+    __tablename__ = 'sources'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
+    base_url = db.Column(db.Text, nullable=False)
+    requires_javascript = db.Column(db.Boolean, default=False)
+    sync_interval_hours = db.Column(db.Integer, default=24)
+    last_synced_at = db.Column(db.DateTime, nullable=True)
+    next_sync_at = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(20), default='active')  # active, paused, error
+    last_error = db.Column(db.Text, nullable=True)
+    consecutive_failures = db.Column(db.Integer, default=0)
+    selectors = db.Column(db.JSON, nullable=True)  # Stored CSS/XPath selectors from LLM
+    selector_version = db.Column(db.Integer, default=0)  # Tracks selector regeneration
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    # Relationships
+    user = db.relationship('User', backref=db.backref('sources', lazy='dynamic'))
+    products = db.relationship('Product', backref='source', lazy='dynamic', cascade='all, delete-orphan')
+    sync_logs = db.relationship('SyncLog', backref='source', lazy='dynamic', cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<Source {self.name}>'
+
+
+class Product(db.Model):
+    """Product tracked from a source"""
+    __tablename__ = 'products'
+
+    id = db.Column(db.Integer, primary_key=True)
+    source_id = db.Column(db.Integer, db.ForeignKey('sources.id'), nullable=False)
+    external_id = db.Column(db.String(255), nullable=True)  # Site-specific product ID
+    name = db.Column(db.String(500), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    product_url = db.Column(db.Text, nullable=False)
+    image_url = db.Column(db.Text, nullable=True)
+    current_price = db.Column(db.Numeric(10, 2), nullable=True)
+    original_price = db.Column(db.Numeric(10, 2), nullable=True)
+    currency = db.Column(db.String(10), default='USD')
+    is_available = db.Column(db.Boolean, default=True)
+    is_favorite = db.Column(db.Boolean, default=False)
+    user_notes = db.Column(db.Text, nullable=True)
+    first_seen_at = db.Column(db.DateTime, default=db.func.now())
+    last_updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+
+    # Relationships
+    price_history = db.relationship('PriceHistory', backref='product', lazy='dynamic', cascade='all, delete-orphan')
+
+    def __repr__(self):
+        return f'<Product {self.name[:50]}>'
+
+
+class PriceHistory(db.Model):
+    """Historical price records for products"""
+    __tablename__ = 'price_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    recorded_at = db.Column(db.DateTime, default=db.func.now())
+
+    def __repr__(self):
+        return f'<PriceHistory product_id={self.product_id} price={self.price}>'
+
+
+class SyncLog(db.Model):
+    """Sync operation logs for tracking and debugging"""
+    __tablename__ = 'sync_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    source_id = db.Column(db.Integer, db.ForeignKey('sources.id'), nullable=False)
+    started_at = db.Column(db.DateTime, default=db.func.now())
+    completed_at = db.Column(db.DateTime, nullable=True)
+    status = db.Column(db.String(20), default='running')  # running, success, failed
+    products_found = db.Column(db.Integer, default=0)
+    products_added = db.Column(db.Integer, default=0)
+    products_updated = db.Column(db.Integer, default=0)
+    error_message = db.Column(db.Text, nullable=True)
+    llm_tokens_used = db.Column(db.Integer, default=0)
+    selectors_regenerated = db.Column(db.Boolean, default=False)
+
+    def __repr__(self):
+        return f'<SyncLog source_id={self.source_id} status={self.status}>'

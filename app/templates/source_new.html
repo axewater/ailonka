@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}Add Source - Ailonka{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-lg border-0">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0"><i class="bi bi-plus-circle"></i> Add Shopping Source</h4>
+            </div>
+            <div class="card-body p-4">
+                <!-- Step 1: Enter URL -->
+                <div id="step1">
+                    <h5 class="mb-3">Step 1: Enter the shopping page URL</h5>
+                    <div class="mb-3">
+                        <label for="url" class="form-label">URL</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-link-45deg"></i></span>
+                            <input type="url" class="form-control" id="url"
+                                   placeholder="https://example.com/category/products" required>
+                            <button type="button" class="btn btn-primary" id="analyzeBtn" onclick="analyzeUrl()">
+                                <i class="bi bi-search"></i> Analyze
+                            </button>
+                        </div>
+                        <div class="form-text">Enter a URL to a product listing page (category page, search results, etc.)</div>
+                    </div>
+                    <div id="analysisLoading" class="py-4" style="display: none;">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <span id="progressStatus" class="text-muted">Starting analysis...</span>
+                        </div>
+                        <div id="progressLog" class="small bg-light rounded p-3" style="max-height: 200px; overflow-y: auto; font-family: monospace;"></div>
+                    </div>
+                    <div id="analysisError" class="alert alert-danger" style="display: none;"></div>
+                </div>
+
+                <!-- Step 2: Preview Products -->
+                <div id="step2" style="display: none;">
+                    <h5 class="mb-3">Step 2: Preview detected products</h5>
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i>
+                        <span id="productsCount">0</span> products detected.
+                        <span id="tokensUsed" class="small text-muted"></span>
+                    </div>
+                    <div id="productsPreview" class="row mb-4" style="max-height: 400px; overflow-y: auto;"></div>
+                    <button type="button" class="btn btn-secondary" onclick="goBack()">
+                        <i class="bi bi-arrow-left"></i> Back
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="goToStep3()">
+                        Continue <i class="bi bi-arrow-right"></i>
+                    </button>
+                </div>
+
+                <!-- Step 3: Configure Source -->
+                <div id="step3" style="display: none;">
+                    <h5 class="mb-3">Step 3: Configure source settings</h5>
+                    <form method="POST" action="{{ url_for('main.source_new') }}">
+                        <input type="hidden" name="url" id="formUrl">
+                        <input type="hidden" name="selectors" id="formSelectors">
+
+                        <div class="mb-3">
+                            <label for="name" class="form-label">Source Name</label>
+                            <input type="text" class="form-control" id="name" name="name"
+                                   placeholder="e.g., Amazon Electronics" required>
+                            <div class="form-text">A friendly name to identify this source</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="sync_interval" class="form-label">Sync Interval</label>
+                            <select class="form-select" id="sync_interval" name="sync_interval">
+                                <option value="1">Every hour</option>
+                                <option value="6">Every 6 hours</option>
+                                <option value="12">Every 12 hours</option>
+                                <option value="24" selected>Daily</option>
+                                <option value="168">Weekly</option>
+                            </select>
+                            <div class="form-text">How often to check for price updates</div>
+                        </div>
+
+                        <hr>
+
+                        <div class="d-flex justify-content-between">
+                            <button type="button" class="btn btn-secondary" onclick="goBackToStep2()">
+                                <i class="bi bi-arrow-left"></i> Back
+                            </button>
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-check-circle"></i> Add Source
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let analysisData = null;
+let eventSource = null;
+
+function addProgressLog(message, type = 'info') {
+    const log = document.getElementById('progressLog');
+    const time = new Date().toLocaleTimeString();
+    const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : '→';
+    const color = type === 'success' ? 'text-success' : type === 'error' ? 'text-danger' : 'text-muted';
+    log.innerHTML += `<div class="${color}"><span class="text-muted">[${time}]</span> ${icon} ${message}</div>`;
+    log.scrollTop = log.scrollHeight;
+}
+
+function updateProgressStatus(message) {
+    document.getElementById('progressStatus').textContent = message;
+}
+
+function analyzeUrl() {
+    const url = document.getElementById('url').value.trim();
+    if (!url) {
+        alert('Please enter a URL');
+        return;
+    }
+
+    document.getElementById('analyzeBtn').disabled = true;
+    document.getElementById('analysisLoading').style.display = 'block';
+    document.getElementById('analysisError').style.display = 'none';
+    document.getElementById('progressLog').innerHTML = '';
+
+    // Use POST with fetch to initiate, then read as event stream
+    fetch('{{ url_for("main.api_analyze_url") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: url })
+    })
+    .then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';  // Buffer for incomplete messages
+
+        function processMessage(data) {
+            if (data.type === 'progress') {
+                addProgressLog(data.message);
+                updateProgressStatus(data.message);
+            } else if (data.type === 'success') {
+                addProgressLog(data.message, 'success');
+            } else if (data.type === 'error') {
+                if (data.message) {
+                    addProgressLog(data.message, 'error');
+                }
+                if (data.error) {
+                    document.getElementById('analysisLoading').style.display = 'none';
+                    document.getElementById('analysisError').textContent = data.error;
+                    document.getElementById('analysisError').style.display = 'block';
+                    document.getElementById('analyzeBtn').disabled = false;
+                }
+            } else if (data.type === 'complete') {
+                document.getElementById('analysisLoading').style.display = 'none';
+                document.getElementById('analyzeBtn').disabled = false;
+                analysisData = data;
+                showProductsPreview(data.products, data.tokens_used);
+            }
+        }
+
+        function read() {
+            reader.read().then(({ done, value }) => {
+                if (done) {
+                    document.getElementById('analyzeBtn').disabled = false;
+                    return;
+                }
+
+                // Append new data to buffer
+                buffer += decoder.decode(value, { stream: true });
+
+                // Process complete messages (each ends with \n\n)
+                const messages = buffer.split('\n\n');
+
+                // Keep the last part in buffer if it's incomplete
+                buffer = messages.pop() || '';
+
+                for (const message of messages) {
+                    const lines = message.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const jsonStr = line.slice(6);
+                                const data = JSON.parse(jsonStr);
+                                processMessage(data);
+                            } catch (e) {
+                                console.log('Parse error for:', line, e);
+                            }
+                        }
+                    }
+                }
+
+                read();
+            }).catch(error => {
+                console.error('Read error:', error);
+                document.getElementById('analyzeBtn').disabled = false;
+                addProgressLog('Stream error: ' + error.message, 'error');
+            });
+        }
+
+        read();
+    })
+    .catch(error => {
+        document.getElementById('analyzeBtn').disabled = false;
+        addProgressLog('Network error: ' + error.message, 'error');
+        document.getElementById('analysisLoading').style.display = 'none';
+        document.getElementById('analysisError').textContent = 'Network error: ' + error.message;
+        document.getElementById('analysisError').style.display = 'block';
+    });
+}
+
+function showProductsPreview(products, tokensUsed) {
+    document.getElementById('step1').style.display = 'none';
+    document.getElementById('step2').style.display = 'block';
+    document.getElementById('productsCount').textContent = products.length;
+
+    if (tokensUsed) {
+        document.getElementById('tokensUsed').textContent = `(${tokensUsed} tokens used)`;
+    }
+
+    const container = document.getElementById('productsPreview');
+    container.innerHTML = '';
+
+    if (products.length === 0) {
+        container.innerHTML = '<div class="col-12"><div class="alert alert-warning">No products detected. The page might require JavaScript or have an unusual structure.</div></div>';
+        return;
+    }
+
+    products.forEach(product => {
+        const priceHtml = product.price
+            ? `<span class="text-success fw-bold">$${product.price.toFixed(2)}</span>`
+            : '<span class="text-muted">No price</span>';
+
+        const originalPriceHtml = product.original_price && product.original_price > product.price
+            ? `<span class="text-muted text-decoration-line-through small ms-2">$${product.original_price.toFixed(2)}</span>`
+            : '';
+
+        const imgHtml = product.image_url
+            ? `<img src="${product.image_url}" class="card-img-top" style="height: 120px; object-fit: contain;" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22><rect fill=%22%23ddd%22 width=%22100%22 height=%22100%22/><text fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22>No Image</text></svg>'">`
+            : '<div class="card-img-top bg-light d-flex align-items-center justify-content-center" style="height: 120px;"><i class="bi bi-image text-muted" style="font-size: 2rem;"></i></div>';
+
+        container.innerHTML += `
+            <div class="col-md-6 col-lg-4 mb-3">
+                <div class="card h-100">
+                    ${imgHtml}
+                    <div class="card-body p-2">
+                        <h6 class="card-title small text-truncate" title="${product.name}">${product.name}</h6>
+                        <p class="card-text mb-0">${priceHtml}${originalPriceHtml}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+}
+
+function goBack() {
+    document.getElementById('step2').style.display = 'none';
+    document.getElementById('step1').style.display = 'block';
+}
+
+function goToStep3() {
+    document.getElementById('step2').style.display = 'none';
+    document.getElementById('step3').style.display = 'block';
+
+    // Set form values
+    document.getElementById('formUrl').value = document.getElementById('url').value;
+    document.getElementById('formSelectors').value = JSON.stringify(analysisData.selectors);
+
+    // Suggest a name based on URL
+    const url = new URL(document.getElementById('url').value);
+    document.getElementById('name').value = url.hostname.replace('www.', '');
+}
+
+function goBackToStep2() {
+    document.getElementById('step3').style.display = 'none';
+    document.getElementById('step2').style.display = 'block';
+}
+</script>
+{% endblock %}
