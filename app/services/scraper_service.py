@@ -338,20 +338,26 @@ class ScraperService:
         # Fetch HTML if not provided
         if not html:
             requires_js = selectors.get('requires_javascript', False)
+            print(f"[SCRAPER] Fetching HTML (JS required: {requires_js})...")
             html, error = self.fetcher.fetch(url, require_javascript=requires_js)
             if error:
+                print(f"[SCRAPER] Fetch failed: {error}")
                 return [], error, False
+            print(f"[SCRAPER] Fetched {len(html):,} bytes")
 
         # Check if we need LLM extraction
         if selectors.get('use_llm_extraction'):
+            print("[SCRAPER] Using LLM extraction mode...")
             products, error = self._extract_with_llm(html, url)
             return products, error, False
 
         # Try selector-based extraction
+        print("[SCRAPER] Trying selector-based extraction...")
         products = self._extract_with_selectors(html, selectors, url)
 
         # If no products found, regenerate selectors
         if not products:
+            print("[SCRAPER] No products found, regenerating selectors...")
             logger.info(f"No products found with selectors for {url}, regenerating...")
             new_selectors, error = self.analyze_url(url)
             if error:
@@ -363,9 +369,11 @@ class ScraperService:
 
             # Still no products? Try direct LLM extraction
             if not products:
+                print("[SCRAPER] Falling back to direct LLM extraction...")
                 products, error = self._extract_with_llm(html, url)
                 return products, error, selectors_regenerated
 
+        print(f"[SCRAPER] Extracted {len(products)} products")
         return products, None, selectors_regenerated
 
     def _extract_with_llm(self, html: str, url: str) -> tuple[list[dict], Optional[str]]:

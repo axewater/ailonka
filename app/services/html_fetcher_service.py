@@ -33,7 +33,7 @@ class HtmlFetcherService:
             'User-Agent': random.choice(USER_AGENTS),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': 'gzip, deflate',
             'DNT': '1',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
@@ -257,9 +257,16 @@ class HtmlFetcherService:
             element.decompose()
 
         # Remove common non-product sections to save space
-        for selector in ['header', 'footer', 'nav', '[class*="cookie"]', '[class*="newsletter"]',
-                         '[class*="popup"]', '[class*="modal"]', '[class*="banner"]', '[id*="cookie"]']:
+        # Be careful not to match body or main content containers
+        for selector in ['header', 'footer', 'nav',
+                         'div[class*="cookie"]', 'div[class*="newsletter"]',
+                         'div[class*="popup"]', 'div[class*="modal"]',
+                         'aside[class*="banner"]', 'div[id*="cookie"]',
+                         '.didomi-popup-container', '.didomi-popup-backdrop']:
             for element in soup.select(selector):
+                # Don't remove if it contains product elements
+                if element.select('[class*="product"], [data-sku], [data-product]'):
+                    continue
                 element.decompose()
 
         # Try to find and prioritize product listing area
