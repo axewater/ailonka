@@ -76,6 +76,8 @@ def sync_source(source: Source) -> SyncLog:
     Sync a single source - fetch products and update database.
     Returns the SyncLog record.
     """
+    print(f"[SYNC] Starting sync for source '{source.name}' (ID: {source.id})")
+
     # Create sync log
     sync_log = SyncLog(source_id=source.id)
     db.session.add(sync_log)
@@ -89,6 +91,7 @@ def sync_source(source: Source) -> SyncLog:
 
         api_key = user_settings.get_api_key()
         model = user_settings.selected_model or 'claude-3-5-haiku-latest'
+        print(f"[SYNC] Using model: {model}")
 
         # Create scraper service
         scraper = ScraperService(api_key=api_key, model=model)
@@ -96,13 +99,18 @@ def sync_source(source: Source) -> SyncLog:
         # Get selectors or generate new ones
         selectors = source.selectors
         if not selectors:
+            print(f"[SYNC] No selectors found, analyzing URL...")
             selectors, error = scraper.analyze_url(source.base_url)
             if error:
                 raise ValueError(f"Failed to analyze URL: {error}")
             source.selectors = selectors
             source.selector_version = 1
+            print(f"[SYNC] Generated new selectors (version 1)")
+        else:
+            print(f"[SYNC] Using existing selectors (version {source.selector_version})")
 
         # Extract products
+        print(f"[SYNC] Extracting products from {source.base_url}...")
         products_data, error, selectors_regenerated = scraper.extract_products(
             source.base_url,
             selectors
@@ -110,6 +118,8 @@ def sync_source(source: Source) -> SyncLog:
 
         if error:
             raise ValueError(f"Failed to extract products: {error}")
+
+        print(f"[SYNC] Extracted {len(products_data)} products")
 
         # Update selectors if regenerated
         if selectors_regenerated:
@@ -159,11 +169,14 @@ def sync_source(source: Source) -> SyncLog:
         source.last_error = None
 
         db.session.commit()
+
+        print(f"[SYNC] Completed: {products_added} added, {products_updated} updated, {scraper.get_tokens_used()} tokens used")
         logger.info(f"Synced source {source.id}: {products_added} added, {products_updated} updated")
 
         return sync_log
 
     except Exception as e:
+        print(f"[SYNC] Error: {str(e)}")
         logger.exception(f"Error syncing source {source.id}")
 
         # Update sync log with failure

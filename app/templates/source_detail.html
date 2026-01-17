@@ -14,9 +14,13 @@
         <h2 class="mb-0">{{ source.name }}</h2>
     </div>
     <div>
-        <form action="{{ url_for('main.source_sync', source_id=source.id) }}" method="POST" class="d-inline">
-            <button type="submit" class="btn btn-success" {% if source.status == 'paused' %}disabled{% endif %}>
-                <i class="bi bi-arrow-repeat"></i> Sync Now
+        <form action="{{ url_for('main.source_sync', source_id=source.id) }}" method="POST" class="d-inline" id="syncForm">
+            <button type="submit" class="btn btn-success" id="syncBtn" {% if source.status == 'paused' %}disabled{% endif %}>
+                <span id="syncBtnText"><i class="bi bi-arrow-repeat"></i> Sync Now</span>
+                <span id="syncBtnSpinner" style="display: none;">
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    Syncing...
+                </span>
             </button>
         </form>
         <a href="{{ url_for('main.source_edit', source_id=source.id) }}" class="btn btn-outline-secondary">
@@ -190,4 +194,12 @@
     box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 </style>
+
+<script>
+document.getElementById('syncForm').addEventListener('submit', function() {
+    document.getElementById('syncBtn').disabled = true;
+    document.getElementById('syncBtnText').style.display = 'none';
+    document.getElementById('syncBtnSpinner').style.display = 'inline';
+});
+</script>
 {% endblock %}

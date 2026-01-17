@@ -360,7 +360,8 @@ def api_analyze_url():
             yield send_progress("Trying static HTTP request...")
             html, error = fetcher.fetch_static(url)
 
-            if error and ('HTTP error' in error or 'CAPTCHA' in error):
+            # Fall back to Playwright on HTTP errors, timeouts, connection errors, or CAPTCHA
+            if error and ('HTTP error' in error or 'CAPTCHA' in error or 'timed out' in error or 'connect' in error.lower()):
                 yield send_progress(f"Static fetch failed: {error}")
                 yield send_progress("Launching headless browser (Playwright stealth mode)...")
                 html, error = fetcher.fetch_with_javascript(url)
@@ -392,7 +393,15 @@ def api_analyze_url():
             # Step 2: Clean HTML
             yield send_progress("Cleaning HTML (removing scripts, styles, navigation)...")
             cleaned_html = fetcher.clean_html_for_llm(html)
-            yield send_progress(f"Cleaned HTML: {len(cleaned_html):,} chars")
+
+            # Report cleaning results
+            if '<!-- Found' in cleaned_html and 'product-samples' in cleaned_html:
+                # Extract product count from comment
+                import re
+                match = re.search(r'Found (\d+) products, showing (\d+)', cleaned_html)
+                if match:
+                    yield send_progress(f"Large page - found {match.group(1)} products, using {match.group(2)} samples")
+            yield send_progress(f"Cleaned HTML: {len(cleaned_html):,} chars (~{len(cleaned_html)//4:,} tokens)")
 
             # Step 3: Analyze with LLM
             yield send_progress(f"Sending to Claude ({model}) for analysis...")

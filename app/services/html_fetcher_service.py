@@ -166,8 +166,8 @@ class HtmlFetcherService:
         # Try static fetch first
         html, error = self.fetch_static(url)
 
-        # If static fetch failed with HTTP error (403, 429, etc.), try Playwright
-        if error and ('HTTP error' in error or 'CAPTCHA' in error):
+        # If static fetch failed with HTTP error, timeout, connection error, or CAPTCHA, try Playwright
+        if error and ('HTTP error' in error or 'CAPTCHA' in error or 'timed out' in error or 'connect' in error.lower()):
             logger.info(f"Static fetch failed ({error}), trying Playwright for {url}")
             js_html, js_error = self.fetch_with_javascript(url)
             if js_html:
@@ -227,13 +227,15 @@ class HtmlFetcherService:
             return base_url.rstrip('/') + '/' + url
         return url
 
-    def clean_html_for_llm(self, html: str, max_length: int = 100000) -> str:
+    def clean_html_for_llm(self, html: str, max_length: int = 80000) -> str:
         """
         Clean HTML for LLM analysis - remove scripts, styles, and unnecessary content.
         Keeps structure and product-related content.
+        Uses progressive cleaning - more aggressive only if needed.
         """
         soup = BeautifulSoup(html, 'lxml')
 
+        # === PASS 1: Basic cleaning ===
         # Remove script and style elements
         for element in soup(['script', 'style', 'noscript', 'iframe', 'svg']):
             element.decompose()
@@ -276,10 +278,53 @@ class HtmlFetcherService:
                 if len(cleaned) <= max_length:
                     return cleaned
 
-        # Otherwise use the full cleaned HTML
+        # Get result of pass 1
         cleaned = str(soup)
 
-        # Truncate if too long
+        # If small enough, return
+        if len(cleaned) <= max_length:
+            return cleaned
+
+        # === PASS 2: Aggressive cleaning (only if still too large) ===
+        logger.info(f"HTML still too large ({len(cleaned):,} chars), applying aggressive cleaning...")
+
+        # Find all product-like containers (including modern React/Next.js patterns)
+        product_containers = soup.select(
+            '[data-sku], [data-product-id], [data-pid], [data-item-id], '
+            '[class*="product-card"], [class*="product-tile"], [class*="product-item"], '
+            '[class*="productCard"], [class*="ProductCard"], [class*="ProductGrid_grid_item"], '
+            '[class*="_product_card"], [class*="product_card"], [class*="grid_item_wrapper"], '
+            '[class*="ProductTile"], [class*="product-listing"], [class*="plp-product"]'
+        )
+
+        if product_containers:
+            # Take a sample of products (first 15) to keep size manageable
+            sample_size = min(15, len(product_containers))
+            sample_html = f"<!-- Found {len(product_containers)} products, showing {sample_size} samples -->\n"
+            sample_html += "<div class='product-samples'>\n"
+            for container in product_containers[:sample_size]:
+                sample_html += str(container) + "\n"
+            sample_html += "</div>"
+
+            if len(sample_html) <= max_length:
+                logger.info(f"Using {sample_size} product samples ({len(sample_html):,} chars)")
+                return sample_html
+
+        # === PASS 3: Even more aggressive - strip attributes ===
+        if len(cleaned) > max_length:
+            logger.info("Stripping non-essential attributes...")
+            # Remove most attributes except essential ones
+            for tag in soup.find_all(True):
+                attrs_to_keep = {}
+                for attr in ['class', 'id', 'href', 'src', 'data-src', 'alt', 'title',
+                             'data-sku', 'data-product', 'data-price', 'aria-label']:
+                    if attr in tag.attrs:
+                        attrs_to_keep[attr] = tag.attrs[attr]
+                tag.attrs = attrs_to_keep
+
+            cleaned = str(soup)
+
+        # Final truncation if still too long
         if len(cleaned) > max_length:
             cleaned = cleaned[:max_length] + "\n<!-- HTML truncated -->"
 
